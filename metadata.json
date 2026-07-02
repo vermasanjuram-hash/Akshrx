@@ -1,0 +1,6 @@
+{
+  "name": "Akarsihta",
+  "description": "A premium, highly romantic mobile personal messenger app designed exclusively for Akarsh and Chahat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

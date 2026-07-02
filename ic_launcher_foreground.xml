@@ -1,0 +1,23 @@
+package com.example.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val LilacLight = Color(0xFFF3E5F5)
+val Lilac = Color(0xFFE1BEE7)
+val LilacSecondary = Color(0xFFD6B5F5)
+val PurplePrimary = Color(0xFFAB47BC)
+val PurpleDark = Color(0xFF4A148C)
+val BlueAccent = Color(0xFF2979FF)
+val DeepBlueHighlight = Color(0xFF0D47A1)
+val RomanticBg = Color(0xFF0F0A1F) // Deep space midnight background
+val RomanticSurface = Color(0x19FFFFFF) // Sleek glassmorphism white/10 overlay
+val RomanticOnSurface = Color(0xFFE2E8F0) // Slate-100 style text color
+
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
+
+val Purple40 = Color(0xFF6650a4)
+val PurpleGrey40 = Color(0xFF625b71)
+val Pink40 = Color(0xFF7D5260)
+

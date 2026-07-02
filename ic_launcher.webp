@@ -1,0 +1,2328 @@
+package com.example
+
+import android.os.Bundle
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.os.Build
+import android.content.Context
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.random.Random
+
+// Data Models
+data class HeartParticle(
+    val id: Int,
+    val xPercent: Float,
+    var yPercent: Float,
+    val speed: Float,
+    val size: Float,
+    val alpha: Float,
+    val drift: Float,
+    val scaleFactor: Float
+)
+
+data class Message(
+    val id: Int,
+    val sender: String,
+    val text: String,
+    val timestamp: String,
+    val isSpecialWish: Boolean = false,
+    val wishTitle: String = ""
+)
+
+data class DreamItem(
+    val id: Int,
+    val title: String,
+    val isCompleted: Boolean,
+    val category: String
+)
+
+data class ThoughtItem(
+    val author: String,
+    val text: String,
+    val time: String
+)
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            MyApplicationTheme {
+                AkarsihtaMainScreen()
+            }
+        }
+    }
+}
+
+@Composable
+fun AkarsihtaMainScreen() {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    // 1. Branding & Name Configuration State
+    val profiles = listOf("Akarsh", "Chahat", "Akshita", "Nonu", "Irish")
+    var currentViewerIdx by remember { mutableStateOf(0) } // Default: Akarsh
+    val currentViewer = profiles[currentViewerIdx]
+    val partnerName = if (currentViewer == "Akarsh" || currentViewer == "Nonu" || currentViewer == "Irish") {
+        "Chahat"
+    } else {
+        "Akarsh"
+    }
+
+    // 2. Navigation State
+    var activeTab by remember { mutableStateOf("home") } // "home", "chat", "dreams"
+
+    // 3. Heartbeats Apart State
+    var simulatedDistance by remember { mutableFloatStateOf(12.4f) }
+    var showHeartbeatOverlay by remember { mutableStateOf(false) }
+    var thinkingClicks by remember { mutableIntStateOf(0) }
+
+    // 4. Overlays State
+    var activeCallType by remember { mutableStateOf<String?>(null) } // "voice", "video", or null
+    var showMovieMode by remember { mutableStateOf(false) }
+    var activeOverlaySticker by remember { mutableStateOf<String?>(null) } // "hug", "kiss", or null
+    var showWishesMenu by remember { mutableStateOf(false) }
+
+    // 5. Love Counter State (Calculated live from a milestone date: October 24, 2021)
+    val milestoneDate = remember {
+        Calendar.getInstance().apply {
+            set(2021, Calendar.OCTOBER, 24, 0, 0, 0)
+        }.timeInMillis
+    }
+    var timeElapsedStr by remember { mutableStateOf("Days: 0, Hours: 0, Min: 0, Sec: 0") }
+    var loveDays by remember { mutableLongStateOf(0) }
+    var loveHours by remember { mutableLongStateOf(0) }
+    var loveMinutes by remember { mutableLongStateOf(0) }
+    var loveSeconds by remember { mutableLongStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val diff = now - milestoneDate
+            val seconds = diff / 1000
+            val minutes = seconds / 60
+            val hours = minutes / 60
+            val days = hours / 24
+
+            loveDays = days
+            loveHours = hours % 24
+            loveMinutes = minutes % 60
+            loveSeconds = seconds % 60
+
+            delay(1000)
+        }
+    }
+
+    // 6. Dynamic Atmosphere: Glowing Pulse Animation
+    val infiniteTransition = rememberInfiniteTransition(label = "glow_pulse")
+    val glowIntensity by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_intensity"
+    )
+
+    // Floating heart particles simulation state
+    val heartParticles = remember {
+        mutableStateListOf<HeartParticle>().apply {
+            for (i in 1..25) {
+                add(
+                    HeartParticle(
+                        id = i,
+                        xPercent = Random.nextFloat(),
+                        yPercent = Random.nextFloat() * 1.2f,
+                        speed = 0.001f + Random.nextFloat() * 0.0025f,
+                        size = 20f + Random.nextFloat() * 45f,
+                        alpha = 0.15f + Random.nextFloat() * 0.5f,
+                        drift = Random.nextFloat() * 2 * (if (Random.nextBoolean()) 1f else -1f),
+                        scaleFactor = 0.8f + Random.nextFloat() * 0.4f
+                    )
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            for (i in heartParticles.indices) {
+                val p = heartParticles[i]
+                var newY = p.yPercent - p.speed
+                if (newY < -0.1f) {
+                    newY = 1.1f
+                }
+                heartParticles[i] = p.copy(yPercent = newY)
+            }
+            delay(20) // Frame rate tick
+        }
+    }
+
+    // 7. Chat messages State
+    val chatMessages = remember {
+        mutableStateListOf(
+            Message(1, "Akarsh", "Hey my beautiful Mrs. Verma! ❤️", "09:12 AM"),
+            Message(2, "Chahat", "Hello husband! Missing you so much today. 🥺", "09:13 AM"),
+            Message(3, "Akarsh", "I am thinking about you every single second. Sent you a virtual heartbeat!", "09:15 AM"),
+            Message(4, "Chahat", "I felt it! Made my heart race. Let's watch a movie together tonight?", "09:16 AM")
+        )
+    }
+
+    // 8. Bucket List State
+    val bucketList = remember {
+        mutableStateListOf(
+            DreamItem(1, "Fall in love at first sight 💖", true, "Milestones"),
+            DreamItem(2, "Romantic midnight drive under a starry sky 🌌", false, "Dates"),
+            DreamItem(3, "Cook a 3-course gourmet dinner together 🍳", false, "Home"),
+            DreamItem(4, "Watch the sunset from the top of the Eiffel Tower 🗼", false, "Travel"),
+            DreamItem(5, "Adopt a cute fluffy puppy together 🐶", false, "Home"),
+            DreamItem(6, "Slow dance in the warm rain 🌧️", false, "Dates")
+        )
+    }
+
+    // 9. Thoughts & Madness State
+    val thoughtsList = remember {
+        mutableStateListOf(
+            ThoughtItem("Akarsh", "Chahat's laughter is my absolute favorite sound in the world.", "2 hours ago"),
+            ThoughtItem("Chahat", "Akarsh always knows exactly how to make me feel secure and cherished.", "4 hours ago"),
+            ThoughtItem("Nonu", "Mr. Verma is my absolute soulmate. No arguments possible! 🥰", "Yesterday"),
+            ThoughtItem("Irish", "Irish & Nonu forever. A bond that outshines the brightest stars.", "2 days ago")
+        )
+    }
+
+    // Root Container with edge-to-edge love glow background
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets.safeDrawing,
+        bottomBar = {
+            // Elegant navigation bar (faithfully adapted from Sleek Interface)
+            NavigationBar(
+                containerColor = Color(0xFF0F0A1F).copy(alpha = 0.85f),
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+                tonalElevation = 0.dp
+            ) {
+                NavigationBarItem(
+                    selected = activeTab == "home",
+                    onClick = { activeTab = "home" },
+                    icon = { Icon(Icons.Default.Favorite, contentDescription = "Home", modifier = Modifier.size(26.dp)) },
+                    label = { Text("Love Desk", fontFamily = FontFamily.Serif, fontSize = 12.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFFE040FB),
+                        selectedTextColor = Color(0xFFE040FB),
+                        unselectedIconColor = Color(0xFF94A3B8),
+                        unselectedTextColor = Color(0xFF94A3B8),
+                        indicatorColor = Color.White.copy(alpha = 0.05f)
+                    ),
+                    modifier = Modifier.testTag("nav_home_tab")
+                )
+                NavigationBarItem(
+                    selected = activeTab == "chat",
+                    onClick = { activeTab = "chat" },
+                    icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Chat", modifier = Modifier.size(26.dp)) },
+                    label = { Text("Secret Chat", fontFamily = FontFamily.Serif, fontSize = 12.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFFE040FB),
+                        selectedTextColor = Color(0xFFE040FB),
+                        unselectedIconColor = Color(0xFF94A3B8),
+                        unselectedTextColor = Color(0xFF94A3B8),
+                        indicatorColor = Color.White.copy(alpha = 0.05f)
+                    ),
+                    modifier = Modifier.testTag("nav_chat_tab")
+                )
+                NavigationBarItem(
+                    selected = activeTab == "dreams",
+                    onClick = { activeTab = "dreams" },
+                    icon = { Icon(Icons.Default.ListAlt, contentDescription = "Dreams", modifier = Modifier.size(26.dp)) },
+                    label = { Text("Shared Dreams", fontFamily = FontFamily.Serif, fontSize = 12.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFFE040FB),
+                        selectedTextColor = Color(0xFFE040FB),
+                        unselectedIconColor = Color(0xFF94A3B8),
+                        unselectedTextColor = Color(0xFF94A3B8),
+                        indicatorColor = Color.White.copy(alpha = 0.05f)
+                    ),
+                    modifier = Modifier.testTag("nav_dreams_tab")
+                )
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color(0xFF0F0A1F))
+        ) {
+            // Background Glow Layers (faithfully adapted from Sleek Interface HTML)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+
+                // Top-left purple glow (60% size, offset top-left)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF4A148C).copy(alpha = 0.35f * glowIntensity), Color.Transparent),
+                        center = Offset(w * -0.1f, h * -0.1f),
+                        radius = w * 0.65f
+                    ),
+                    center = Offset(w * -0.1f, h * -0.1f),
+                    radius = w * 0.65f
+                )
+
+                // Bottom-right blue glow (60% size, offset bottom-right)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF0D47A1).copy(alpha = 0.25f * glowIntensity), Color.Transparent),
+                        center = Offset(w * 1.1f, h * 1.1f),
+                        radius = w * 0.65f
+                    ),
+                    center = Offset(w * 1.1f, h * 1.1f),
+                    radius = w * 0.65f
+                )
+
+                // Middle fuchsia glow (40% size, offset center-left)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFD500F9).copy(alpha = 0.15f * glowIntensity), Color.Transparent),
+                        center = Offset(w * 0.4f, h * 0.5f),
+                        radius = w * 0.5f
+                    ),
+                    center = Offset(w * 0.4f, h * 0.5f),
+                    radius = w * 0.5f
+                )
+            }
+
+            // Particle Canvas Layer
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val canvasWidth = size.width
+                val canvasHeight = size.height
+
+                heartParticles.forEach { p ->
+                    val x = p.xPercent * canvasWidth
+                    val y = p.yPercent * canvasHeight
+                    val sizePx = p.size
+
+                    // Draw heart path
+                    val heartPath = Path().apply {
+                        val widthVal = sizePx * p.scaleFactor
+                        val heightVal = sizePx * p.scaleFactor
+                        
+                        moveTo(x, y + heightVal / 4)
+                        cubicTo(x, y, x - widthVal / 2, y, x - widthVal / 2, y + heightVal / 2)
+                        cubicTo(x - widthVal / 2, y + heightVal * 3 / 4, x, y + heightVal, x, y + heightVal)
+                        cubicTo(x, y + heightVal, x + widthVal / 2, y + heightVal * 3 / 4, x + widthVal / 2, y + heightVal / 2)
+                        cubicTo(x + widthVal / 2, y, x, y, x, y + heightVal / 4)
+                        close()
+                    }
+
+                    drawPath(
+                        path = heartPath,
+                        color = Color(0xFFE1BEE7).copy(alpha = p.alpha),
+                        style = androidx.compose.ui.graphics.drawscope.Fill
+                    )
+                }
+            }
+
+            // Main Tab Content Router
+            AnimatedContent(
+                targetState = activeTab,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+                },
+                label = "tab_transition",
+                modifier = Modifier.fillMaxSize()
+            ) { targetTab ->
+                when (targetTab) {
+                    "home" -> HomeScreen(
+                        currentViewer = currentViewer,
+                        partnerName = partnerName,
+                        profiles = profiles,
+                        currentViewerIdx = currentViewerIdx,
+                        onProfileToggle = { currentViewerIdx = (currentViewerIdx + 1) % profiles.size },
+                        loveDays = loveDays,
+                        loveHours = loveHours,
+                        loveMinutes = loveMinutes,
+                        loveSeconds = loveSeconds,
+                        simulatedDistance = simulatedDistance,
+                        thinkingClicks = thinkingClicks,
+                        onThinkingClick = {
+                            thinkingClicks++
+                            showHeartbeatOverlay = true
+                            simulatedDistance = Random.nextFloat() * 15f + 1f
+                            // Trigger physical haptic if possible
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        thoughtsList = thoughtsList,
+                        onAddThought = { text ->
+                            thoughtsList.add(0, ThoughtItem(currentViewer, text, "Just now"))
+                        },
+                        onSendHug = {
+                            activeOverlaySticker = "hug"
+                            chatMessages.add(Message(chatMessages.size + 1, currentViewer, "Sent a warm, magical bear hug! 🧸💕", "Just now"))
+                        },
+                        onSendKiss = {
+                            activeOverlaySticker = "kiss"
+                            chatMessages.add(Message(chatMessages.size + 1, currentViewer, "Sent a wave of sweet flying kisses! 💋✨", "Just now"))
+                        },
+                        onTriggerWishesMenu = { showWishesMenu = true },
+                        onTriggerMovieMode = { showMovieMode = true }
+                    )
+
+                    "chat" -> ChatScreen(
+                        currentViewer = currentViewer,
+                        partnerName = partnerName,
+                        messages = chatMessages,
+                        onSendMessage = { text ->
+                            chatMessages.add(Message(chatMessages.size + 1, currentViewer, text, "Just now"))
+                            // Trigger smart automatic reply from partner
+                            scope.launch {
+                                val replyText = when {
+                                    text.contains("love", ignoreCase = true) -> "My love for you reaches the heavens, my perfect one! 💕"
+                                    text.contains("miss", ignoreCase = true) -> "I miss you much more, counting down the hours! 🥺"
+                                    text.contains("movie", ignoreCase = true) -> "Oh yes! Open the synchronized player at the top, I am ready! 🍿"
+                                    else -> "Every message from you makes my heart race with pure joy. 🥰"
+                                }
+                                delay(1800)
+                                chatMessages.add(Message(chatMessages.size + 1, partnerName, replyText, "Just now"))
+                            }
+                        },
+                        onSendHug = {
+                            activeOverlaySticker = "hug"
+                            chatMessages.add(Message(chatMessages.size + 1, currentViewer, "Sent a warm, magical bear hug! 🧸💕", "Just now"))
+                        },
+                        onSendKiss = {
+                            activeOverlaySticker = "kiss"
+                            chatMessages.add(Message(chatMessages.size + 1, currentViewer, "Sent a wave of sweet flying kisses! 💋✨", "Just now"))
+                        },
+                        onTriggerVoiceCall = { activeCallType = "voice" },
+                        onTriggerVideoCall = { activeCallType = "video" },
+                        onTriggerMovieMode = { showMovieMode = true },
+                        onTriggerWishesMenu = { showWishesMenu = true }
+                    )
+
+                    "dreams" -> SharedDreamsScreen(
+                        currentViewer = currentViewer,
+                        partnerName = partnerName,
+                        bucketList = bucketList,
+                        onAddDreamItem = { title, cat ->
+                            bucketList.add(DreamItem(bucketList.size + 1, title, false, cat))
+                        },
+                        onToggleDreamItem = { id ->
+                            val idx = bucketList.indexOfFirst { it.id == id }
+                            if (idx != -1) {
+                                val current = bucketList[idx]
+                                bucketList[idx] = current.copy(isCompleted = !current.isCompleted)
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Interactive Call Overlay
+            if (activeCallType != null) {
+                CallOverlay(
+                    callType = activeCallType!!,
+                    viewerName = currentViewer,
+                    partnerName = partnerName,
+                    onEndCall = { activeCallType = null }
+                )
+            }
+
+            // Synchronized "Watch Together" Movie Screen
+            if (showMovieMode) {
+                MovieScreen(
+                    viewerName = currentViewer,
+                    partnerName = partnerName,
+                    onClose = { showMovieMode = false }
+                )
+            }
+
+            // Interactive Hug/Kiss Full-Screen Sticker Overlay
+            if (activeOverlaySticker != null) {
+                StickerOverlay(
+                    stickerType = activeOverlaySticker!!,
+                    onFinished = { activeOverlaySticker = null }
+                )
+            }
+
+            // Interactive Wishes Category Selector Modal
+            if (showWishesMenu) {
+                WishesMenuModal(
+                    currentViewer = currentViewer,
+                    partnerName = partnerName,
+                    onDismiss = { showWishesMenu = false },
+                    onSendWish = { title, content ->
+                        chatMessages.add(
+                            Message(
+                                id = chatMessages.size + 1,
+                                sender = currentViewer,
+                                text = content,
+                                timestamp = "Just now",
+                                isSpecialWish = true,
+                                wishTitle = title
+                            )
+                        )
+                        showWishesMenu = false
+                    }
+                )
+            }
+
+            // Rhythmic heart heartbeat pulse overlay
+            if (showHeartbeatOverlay) {
+                HeartbeatFeedbackOverlay(
+                    textMsg = "Sent a warm heartbeat to $partnerName!",
+                    onDismiss = { showHeartbeatOverlay = false }
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 1: HOME (LOVE DESK) SCREEN
+// ==========================================
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(
+    currentViewer: String,
+    partnerName: String,
+    profiles: List<String>,
+    currentViewerIdx: Int,
+    onProfileToggle: () -> Unit,
+    loveDays: Long,
+    loveHours: Long,
+    loveMinutes: Long,
+    loveSeconds: Long,
+    simulatedDistance: Float,
+    thinkingClicks: Int,
+    onThinkingClick: () -> Unit,
+    thoughtsList: List<ThoughtItem>,
+    onAddThought: (String) -> Unit,
+    onSendHug: () -> Unit,
+    onSendKiss: () -> Unit,
+    onTriggerWishesMenu: () -> Unit,
+    onTriggerMovieMode: () -> Unit
+) {
+    var thoughtText by remember { mutableStateOf("") }
+    val romanticNotes = remember {
+        listOf(
+            "Good morning Chahat! Akarsh thinks you look stunning every single day. 💖",
+            "Akarsh: You are my today, tomorrow, and all of my eternity. 💕",
+            "Greetings Mrs. Verma! Hope your day is filled with magical, sweet laughter. 🌸",
+            "Irish & Nonu: Two hearts bound by the magical threads of true love. ✨",
+            "Always remember: Space and time can never diminish our heartbeats.",
+            "Mr. Verma: There is nothing in this world more beautiful than your warm smile. 🌟"
+        )
+    }
+
+    var activeNoteIdx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5000)
+            activeNoteIdx = (activeNoteIdx + 1) % romanticNotes.size
+        }
+    }
+
+    val viewerInitials = when (currentViewer) {
+        "Akarsh" -> "AV"
+        "Chahat" -> "CV"
+        "Akshita" -> "AK"
+        "Nonu" -> "NO"
+        "Irish" -> "IR"
+        else -> "AV"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // App Elegant Header (Faithfully adapted from Sleek Interface)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Profile avatar with gradient background and border
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFE040FB), Color(0xFF651FFF))
+                            )
+                        )
+                        .border(2.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                        .clickable { onProfileToggle() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = viewerInitials,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = "Akarsihta",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFCE4EC),
+                            fontSize = 24.sp
+                        )
+                    )
+                    Text(
+                        text = "MR & MRS VERMA",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = Color(0xFFD6B5F5).copy(alpha = 0.8f),
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            fontSize = 10.sp
+                        )
+                    )
+                }
+            }
+
+            // Sleek utility buttons (adapted from Sleek Interface header)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Heart Profile Switcher button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                        .clickable { onProfileToggle() }
+                        .testTag("profile_toggle_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("❤️", fontSize = 18.sp)
+                }
+
+                // Watch together Movie mode launcher button
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                        .clickable { onTriggerMovieMode() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🎬", fontSize = 18.sp)
+                }
+            }
+        }
+
+        // Animated Carousel Marquee Greetings Box (Faithfully adapted capsule design)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(50))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(50))
+                .padding(vertical = 10.dp, horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedContent(
+                targetState = activeNoteIdx,
+                transitionSpec = {
+                    slideInVertically { it } + fadeIn() togetherWith slideOutVertically { -it } + fadeOut()
+                },
+                label = "marquee_animation"
+            ) { idx ->
+                Text(
+                    text = romanticNotes[idx],
+                    color = Color(0xFFF3E5F5).copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Medium,
+                    fontStyle = FontStyle.Italic,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Live Love Counter Widget (Faithfully adapted dark purple-blue gradient card)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF4A148C).copy(alpha = 0.4f),
+                                Color(0xFF0D47A1).copy(alpha = 0.4f)
+                            )
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "OUR JOURNEY TOGETHER",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color(0xFFE040FB).copy(alpha = 0.7f),
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.5.sp,
+                            fontSize = 10.sp
+                        ),
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    // Rhythmic countdown boxes with vertical dividers
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TimeItemBox(value = loveDays, label = "Days")
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.08f)))
+                        TimeItemBox(value = loveHours, label = "Hours")
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.08f)))
+                        TimeItemBox(value = loveMinutes, label = "Mins")
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.08f)))
+                        TimeItemBox(value = loveSeconds, label = "Secs")
+                    }
+                }
+            }
+        }
+
+        // Side-by-Side Widgets Row (Faithfully adapted from Sleek Interface)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Heartbeats Apart card
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(132.dp)
+                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                    .clickable { onThinkingClick() }
+                    .padding(14.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💓", fontSize = 20.sp)
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF4CAF50).copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "LIVE",
+                                color = Color(0xFF81C784),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = "HEARTBEATS APART",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = String.format("%.1f km away", simulatedDistance),
+                            color = Color(0xFFF3E5F5),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // Current Thoughts card
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(132.dp)
+                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                    .padding(14.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💭", fontSize = 20.sp)
+                        Text(
+                            text = "UPDATED",
+                            color = Color(0xFFE040FB),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "CURRENT THOUGHTS",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        val lastThought = thoughtsList.firstOrNull()?.text ?: "No thoughts shared yet..."
+                        Text(
+                            text = lastThought,
+                            color = Color(0xFFF3E5F5).copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = FontStyle.Italic,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Quick Action Buttons (Faithfully adapted Send Hugs and Send Kisses)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                    .clickable { onSendHug() }
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("🫂", fontSize = 24.sp)
+                    Text(
+                        text = "SEND HUGS",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                    .clickable { onSendKiss() }
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("💋", fontSize = 24.sp)
+                    Text(
+                        text = "SEND KISSES",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+
+        // Special Wishes Button (Faithfully adapted premium fuchsia-purple gradient)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFFD500F9), Color(0xFF7B1FA2))
+                    )
+                )
+                .clickable { onTriggerWishesMenu() }
+                .padding(vertical = 16.dp, horizontal = 20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Wish Something Special",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontStyle = FontStyle.Italic,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text("✨", fontSize = 20.sp)
+            }
+        }
+
+        // Thoughts & Romantic Madness Box (Redesigned glass container)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Thoughts & Romantic Madness",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        color = Color(0xFFFCE4EC),
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
+
+                // Input to write a thought
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = thoughtText,
+                        onValueChange = { thoughtText = it },
+                        placeholder = { Text("Share a sweet thought...", color = Color(0xFF94A3B8).copy(alpha = 0.6f)) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFFE040FB),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("thought_input_field"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+
+                    IconButton(
+                        onClick = {
+                            if (thoughtText.isNotBlank()) {
+                                onAddThought(thoughtText)
+                                thoughtText = ""
+                            }
+                        },
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFFE040FB)),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .testTag("submit_thought_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add thought", tint = Color.White)
+                    }
+                }
+
+                // Scrollable feed of thoughts
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    thoughtsList.take(3).forEach { thought ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.02f), RoundedCornerShape(16.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.04f), RoundedCornerShape(16.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = thought.author,
+                                        color = Color(0xFFD6B5F5),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Serif
+                                    )
+                                    Text(
+                                        text = thought.time,
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Text(
+                                    text = "\"${thought.text}\"",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Serif,
+                                    fontStyle = FontStyle.Italic,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TimeItemBox(value: Long, label: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    ) {
+        Text(
+            text = String.format("%02d", value),
+            style = MaterialTheme.typography.displaySmall.copy(
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 28.sp
+            )
+        )
+        Text(
+            text = label.uppercase(),
+            color = Color(0xFF94A3B8),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+// ==========================================
+// SCREEN 2: CHAT ROOM (SECRET CHAT) SCREEN
+// ==========================================
+@Composable
+fun ChatScreen(
+    currentViewer: String,
+    partnerName: String,
+    messages: List<Message>,
+    onSendMessage: (String) -> Unit,
+    onSendHug: () -> Unit,
+    onSendKiss: () -> Unit,
+    onTriggerVoiceCall: () -> Unit,
+    onTriggerVideoCall: () -> Unit,
+    onTriggerMovieMode: () -> Unit,
+    onTriggerWishesMenu: () -> Unit
+) {
+    var typedText by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Chat Header with Calling buttons & Watch Together Mode (Faithfully adapted to Sleek Interface)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F0A1F).copy(alpha = 0.85f))
+                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)), RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Partner Avatar Card with Glowing Ring
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE040FB).copy(alpha = 0.15f))
+                        .border(1.5.dp, Color(0xFFE040FB), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = partnerName.take(1),
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = partnerName,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF4CAF50))
+                        )
+                        Text(
+                            text = "Aura Glowing • Online",
+                            color = Color(0xFF81C784),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // Top Header Action Row (Calls & Movie)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Synchronized Watch Together Movie Button
+                IconButton(
+                    onClick = onTriggerMovieMode,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFFE040FB)),
+                    modifier = Modifier.testTag("watch_movie_button")
+                ) {
+                    Icon(Icons.Default.Tv, contentDescription = "Watch together movie screen")
+                }
+
+                // Heart-themed Voice Call Button
+                IconButton(
+                    onClick = onTriggerVoiceCall,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFFE040FB)),
+                    modifier = Modifier.testTag("voice_call_button")
+                ) {
+                    Icon(Icons.Default.Phone, contentDescription = "Heart voice call", tint = Color(0xFFE040FB))
+                }
+
+                // Heart-themed Video Call Button
+                IconButton(
+                    onClick = onTriggerVideoCall,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFFE040FB)),
+                    modifier = Modifier.testTag("video_call_button")
+                ) {
+                    Icon(Icons.Default.Videocam, contentDescription = "Heart video call", tint = Color(0xFFE040FB))
+                }
+            }
+        }
+
+        // Message Feed Area
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            reverseLayout = true
+        ) {
+            // Reversed items list
+            items(messages.reversed()) { msg ->
+                val isViewerMessage = msg.sender == currentViewer
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (isViewerMessage) Arrangement.End else Arrangement.Start
+                ) {
+                    Card(
+                        shape = if (isViewerMessage) {
+                            RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                        } else {
+                            RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                        },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (msg.isSpecialWish) {
+                                Color(0xFF4A148C).copy(alpha = 0.4f) // Special styled note
+                            } else if (isViewerMessage) {
+                                Color(0xFF651FFF).copy(alpha = 0.85f)
+                            } else {
+                                Color.White.copy(alpha = 0.05f)
+                            }
+                        ),
+                        border = if (msg.isSpecialWish) {
+                            BorderStroke(1.5.dp, Color(0xFFE040FB))
+                        } else {
+                            BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f))
+                        },
+                        modifier = Modifier.widthIn(max = 280.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            if (msg.isSpecialWish) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.CardGiftcard,
+                                        contentDescription = "Wish",
+                                        tint = Color(0xFFE040FB),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = msg.wishTitle.uppercase(),
+                                        color = Color(0xFFE040FB),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = msg.sender,
+                                    color = if (isViewerMessage) Color(0xFFFCE4EC) else Color(0xFFE040FB),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Serif,
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                            }
+
+                            Text(
+                                text = msg.text,
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontFamily = FontFamily.Serif
+                            )
+
+                            Text(
+                                text = msg.timestamp,
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 9.sp,
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Romantic Actions Bar (Wishes Menu, Send Kisses, Send Hugs)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F0A1F).copy(alpha = 0.85f))
+                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.06f)), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // "Wish Something Special" button
+            Button(
+                onClick = onTriggerWishesMenu,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("wish_something_special_button")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CardGiftcard,
+                        contentDescription = "Gift Icon",
+                        tint = Color(0xFFE040FB),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "Wish Something",
+                        color = Color(0xFFF3E5F5),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // "Send Hugs" Action Button
+            Button(
+                onClick = onSendHug,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.testTag("send_hugs_button")
+            ) {
+                Text("🤗 Send Hugs", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // "Send Kisses" Action Button
+            Button(
+                onClick = onSendKiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.testTag("send_kisses_button")
+            ) {
+                Text("💋 Send Kisses", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Standard Keyboard Input Box
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F0A1F).copy(alpha = 0.95f))
+                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f)))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = typedText,
+                onValueChange = { typedText = it },
+                placeholder = { Text("Write a romantic secure message...", color = Color(0xFF94A3B8).copy(alpha = 0.5f)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFFE040FB),
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("chat_input_text_field"),
+                singleLine = true
+            )
+
+            IconButton(
+                onClick = {
+                    if (typedText.isNotBlank()) {
+                        onSendMessage(typedText)
+                        typedText = ""
+                    }
+                },
+                colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFFE040FB)),
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("send_message_button")
+            ) {
+                Icon(Icons.Default.Send, contentDescription = "Send message", tint = Color.White)
+            }
+        }
+    }
+}
+
+// ==========================================
+// SCREEN 3: SHARED DREAMS & BUCKET LIST
+// ==========================================
+@Composable
+fun SharedDreamsScreen(
+    currentViewer: String,
+    partnerName: String,
+    bucketList: List<DreamItem>,
+    onAddDreamItem: (String, String) -> Unit,
+    onToggleDreamItem: (Int) -> Unit
+) {
+    var itemTitle by remember { mutableStateOf("") }
+    var itemCategory by remember { mutableStateOf("Travel") }
+    val categories = listOf("Travel", "Milestones", "Dates", "Home")
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column {
+            Text(
+                text = "Shared Dreams & Goals",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE1BEE7)
+                )
+            )
+            Text(
+                text = "Things we will accomplish side-by-side",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color(0xFFAB47BC)
+                )
+            )
+        }
+
+        // Add Dream Input Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF281140).copy(alpha = 0.85f)),
+            border = BorderStroke(1.dp, Color(0xFFAB47BC).copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Add a Dream Together",
+                    color = Color(0xFFE1BEE7),
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+
+                OutlinedTextField(
+                    value = itemTitle,
+                    onValueChange = { itemTitle = it },
+                    placeholder = { Text("Enter a new bucket list goal...", color = Color(0xFFD6B5F5).copy(alpha = 0.5f)) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFAB47BC),
+                        unfocusedBorderColor = Color(0xFFAB47BC).copy(alpha = 0.5f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dream_title_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Category selector pills
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    categories.forEach { cat ->
+                        val isSelected = itemCategory == cat
+                        Card(
+                            onClick = { itemCategory = cat },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) Color(0xFFAB47BC) else Color(0xFF1E0C30)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFFAB47BC).copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = cat,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    IconButton(
+                        onClick = {
+                            if (itemTitle.isNotBlank()) {
+                                onAddDreamItem(itemTitle, itemCategory)
+                                itemTitle = ""
+                            }
+                        },
+                        colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFFAB47BC)),
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("add_dream_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Item", tint = Color.White)
+                    }
+                }
+            }
+        }
+
+        // Scrollable List of Dream Items
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(bucketList) { dream ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (dream.isCompleted) Color(0xFF381460).copy(alpha = 0.5f) else Color(0xFF281140).copy(alpha = 0.9f)
+                    ),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (dream.isCompleted) Color(0xFFAB47BC).copy(alpha = 0.2f) else Color(0xFFAB47BC).copy(alpha = 0.4f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    onClick = { onToggleDreamItem(dream.id) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (dream.isCompleted) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                                contentDescription = "Toggle Complete",
+                                tint = if (dream.isCompleted) Color(0xFF2979FF) else Color(0xFFAB47BC),
+                                modifier = Modifier.size(24.dp)
+                            )
+
+                            Column {
+                                Text(
+                                    text = dream.title,
+                                    color = if (dream.isCompleted) Color.White.copy(alpha = 0.6f) else Color.White,
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = dream.category,
+                                    color = Color(0xFFAB47BC),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Category specific romantic icon indicators
+                        Icon(
+                            imageVector = when (dream.category) {
+                                "Travel" -> Icons.Default.LocationOn
+                                "Milestones" -> Icons.Default.Star
+                                "Dates" -> Icons.Default.Favorite
+                                else -> Icons.Default.Home
+                            },
+                            contentDescription = "Category",
+                            tint = Color(0xFFD6B5F5).copy(alpha = 0.5f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SUB-COMPONENT: CALLED OVERLAY
+// ==========================================
+@Composable
+fun CallOverlay(
+    callType: String,
+    viewerName: String,
+    partnerName: String,
+    onEndCall: () -> Unit
+) {
+    var callTime by remember { mutableIntStateOf(0) }
+    var isMuted by remember { mutableStateOf(false) }
+    var isSpeaker by remember { mutableStateOf(false) }
+    var isCameraOff by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            callTime++
+        }
+    }
+
+    val infiniteHeartTransition = rememberInfiniteTransition(label = "pulse_heart_calling")
+    val pulseScale by infiniteHeartTransition.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_heart_scale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF130524).copy(alpha = 0.98f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp)
+        ) {
+            // Header Info
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF2979FF).copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "AKARSIHTA SECURE CALL",
+                        color = Color(0xFF2979FF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = if (callType == "video") "Mutual Video Chat" else "Private Audio Call",
+                    color = Color(0xFFD6B5F5),
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = partnerName,
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = String.format("%02d:%02d Connected", callTime / 60, callTime % 60),
+                    color = Color(0xFFAB47BC),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Visual Avatars Center
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(220.dp)
+                    .scale(pulseScale)
+            ) {
+                // Heart Pulse Circle Outer Ring
+                Box(
+                    modifier = Modifier
+                        .size(190.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFAB47BC).copy(alpha = 0.1f))
+                        .border(1.5.dp, Color(0xFFAB47BC).copy(alpha = 0.4f), CircleShape)
+                )
+
+                // Partner Avatar Picture Mock
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF281140))
+                        .border(3.dp, Color(0xFF2979FF), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Calling Partner",
+                            tint = Color(0xFFAB47BC),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text(
+                            text = partnerName,
+                            color = Color.White,
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+            }
+
+            // Interactive Controls Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Mic Control
+                IconButton(
+                    onClick = { isMuted = !isMuted },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (isMuted) Color.White else Color(0xFF281140)
+                    ),
+                    modifier = Modifier.size(54.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isMuted) Icons.Default.Close else Icons.Default.Phone,
+                        contentDescription = "Mute Microphone",
+                        tint = if (isMuted) Color.Black else Color.White
+                    )
+                }
+
+                // Call End Button
+                IconButton(
+                    onClick = onEndCall,
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = Color(0xFFCF6679)),
+                    modifier = Modifier
+                        .size(66.dp)
+                        .testTag("end_call_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Hang Up",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                // Speaker / Camera Toggler
+                IconButton(
+                    onClick = {
+                        if (callType == "video") {
+                            isCameraOff = !isCameraOff
+                        } else {
+                            isSpeaker = !isSpeaker
+                        }
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (isSpeaker || isCameraOff) Color.White else Color(0xFF281140)
+                    ),
+                    modifier = Modifier.size(54.dp)
+                ) {
+                    Icon(
+                        imageVector = if (callType == "video") Icons.Default.Videocam else Icons.Default.Star,
+                        contentDescription = "Camera/Speaker Toggle",
+                        tint = if (isSpeaker || isCameraOff) Color.Black else Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SUB-COMPONENT: WATCH TOGETHER MOVIE SCREEN
+// ==========================================
+@Composable
+fun MovieScreen(
+    viewerName: String,
+    partnerName: String,
+    onClose: () -> Unit
+) {
+    var moviePlaying by remember { mutableStateOf(true) }
+    var videoProgress by remember { mutableFloatStateOf(0.38f) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(moviePlaying) {
+        if (moviePlaying) {
+            while (videoProgress < 1.0f) {
+                delay(1000)
+                videoProgress += 0.005f
+            }
+        }
+    }
+
+    // Mock reaction subtitles
+    val subtitleText = when {
+        videoProgress < 0.45f -> "Akarsh: Look at this beautiful scene! It reminds me of our first date."
+        videoProgress < 0.6f -> "Chahat: Yes! Except you were much more nervous than the main character 🥺"
+        videoProgress < 0.75f -> "Akarsh: Hey! I was just completely captivated by your absolute beauty."
+        else -> "Chahat: Love you Mr. Verma. You are my perfect anime prince."
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F031C).copy(alpha = 0.99f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header of Watch Together
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Tv, contentDescription = "Movie", tint = Color(0xFF2979FF))
+                    Text(
+                        text = "Watch Together Mode",
+                        color = Color.White,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+
+                IconButton(
+                    onClick = onClose,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White),
+                    modifier = Modifier.testTag("close_movie_button")
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close watch party")
+                }
+            }
+
+            // Beautiful Anime Mock Video Stream Frame
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, Color(0xFF2979FF))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    // Custom Drawn Romantic Anime Starry Sky Scene on Canvas
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val width = size.width
+                        val height = size.height
+
+                        // Draw a magical violet-to-blue sunset background
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color(0xFF2E1A47), Color(0xFF0D47A1))
+                            )
+                        )
+
+                        // Draw a big romantic glowing moon
+                        drawCircle(
+                            color = Color(0xFFFFF9C4).copy(alpha = 0.85f),
+                            radius = 45f,
+                            center = Offset(width * 0.25f, height * 0.35f)
+                        )
+
+                        // Draw romantic silhouette of a couple on a hill
+                        val hillPath = Path().apply {
+                            moveTo(0f, height)
+                            quadraticTo(width * 0.4f, height * 0.85f, width * 0.7f, height * 0.8f)
+                            quadraticTo(width * 0.9f, height * 0.83f, width, height)
+                            close()
+                        }
+                        drawPath(hillPath, Color(0xFF0B0414))
+
+                        // Draw two glowing love heart stars in sky
+                        drawCircle(Color.White, 3f, Offset(width * 0.6f, height * 0.2f))
+                        drawCircle(Color.White, 3f, Offset(width * 0.8f, height * 0.15f))
+                        drawCircle(Color.White, 4f, Offset(width * 0.75f, height * 0.35f))
+                    }
+
+                    // Synced overlay subtitles at bottom of player
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = subtitleText,
+                            color = Color(0xFFD6B5F5),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Mini play indicator
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(50.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .clickable { moviePlaying = !moviePlaying },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (moviePlaying) Icons.Default.Close else Icons.Default.Phone, // Simulated Play/Pause
+                            contentDescription = "Play Toggle",
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Synchronization progress tracker
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                LinearProgressIndicator(
+                    progress = { videoProgress },
+                    color = Color(0xFF2979FF),
+                    trackColor = Color(0xFF281140),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Title: Starry Destiny (Ch-2)",
+                        color = Color(0xFFD6B5F5),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = String.format("Sync Status: 100%% Mutual Perfect Match"),
+                        color = Color(0xFF2979FF),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Split screen webcam previews of each other at bottom
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // User Video Reaction
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF281140).copy(alpha = 0.8f)),
+                    border = BorderStroke(1.dp, Color(0xFFAB47BC).copy(alpha = 0.4f))
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFAB47BC).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Person, contentDescription = "Me", tint = Color(0xFFE1BEE7), modifier = Modifier.size(32.dp))
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(text = "$viewerName (You)", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Serif)
+                            Text(text = "Aura reaction feed", color = Color(0xFFAB47BC), fontSize = 9.sp)
+                        }
+                    }
+                }
+
+                // Partner Video Reaction
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF281140).copy(alpha = 0.8f)),
+                    border = BorderStroke(1.dp, Color(0xFF2979FF).copy(alpha = 0.4f))
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2979FF).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Favorite, contentDescription = "Partner", tint = Color(0xFF2979FF), modifier = Modifier.size(32.dp))
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(text = partnerName, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Serif)
+                            Text(text = "Smiling back at you", color = Color(0xFF2979FF), fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SUB-COMPONENT: STICKER OVERLAYS (HUGS & KISSES)
+// ==========================================
+@Composable
+fun StickerOverlay(
+    stickerType: String,
+    onFinished: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        delay(2500) // Display duration
+        onFinished()
+    }
+
+    val infiniteStickerTransition = rememberInfiniteTransition(label = "sticker_pulse")
+    val sizeScale by infiniteStickerTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "size_scale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.75f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.scale(sizeScale)
+        ) {
+            if (stickerType == "hug") {
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE1BEE7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "🧸", fontSize = 80.sp)
+                }
+
+                Text(
+                    text = "WARM HUG SENT!",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "A cozy, comforting embrace from Mrs. Verma",
+                    color = Color(0xFFD6B5F5),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF3E5F5)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "💋", fontSize = 80.sp)
+                }
+
+                Text(
+                    text = "FLYING KISSES INCOMING!",
+                    color = Color(0xFFCF6679),
+                    fontSize = 24.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "A wave of affection floating directly onto your lips!",
+                    color = Color(0xFFD6B5F5),
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// SUB-COMPONENT: WISHES MENU MODAL
+// ==========================================
+@Composable
+fun WishesMenuModal(
+    currentViewer: String,
+    partnerName: String,
+    onDismiss: () -> Unit,
+    onSendWish: (String, String) -> Unit
+) {
+    val options = listOf(
+        Pair("Morning Note", "Good morning my queen Chahat! Hope your day is filled with pure warmth and sweet smiles. I love you more with every heartbeat! ☀️🌸"),
+        Pair("Night Greeting", "Good night my prince Akarsh! Rest well and dream of all the magical moments we will accomplish. Thinking of you always. 🌙💤"),
+        Pair("Milestone Love", "Happy special milestone, my forever partner! Every day with you is a gorgeous chapter of love, respect, and deep madness. 🥂💖"),
+        Pair("Deep Romance", "With you, I have found the soulmate who understands every rhythm of my heart. Akarsh & Chahat: Formed by destiny, united by true love. ❤️💍")
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f))
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+                .clickable(enabled = false) {}, // Prevent dismissing on card click
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF281140)),
+            border = BorderStroke(1.5.dp, Color(0xFFAB47BC)),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Wish Something Special",
+                        color = Color.White,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    }
+                }
+
+                Text(
+                    text = "Select a deeply romantic, pre-composed note to post immediately into the chat thread:",
+                    color = Color(0xFFD6B5F5),
+                    fontSize = 13.sp
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    options.forEach { item ->
+                        Card(
+                            onClick = { onSendWish(item.first, item.second) },
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF381460).copy(alpha = 0.6f)),
+                            border = BorderStroke(1.dp, Color(0xFFD6B5F5).copy(alpha = 0.2f)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Favorite,
+                                        contentDescription = "Romantic indicator",
+                                        tint = Color(0xFF2979FF),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = item.first,
+                                        color = Color(0xFF2979FF),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.second,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Serif,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// SUB-COMPONENT: HEARTBEAT FEEDBACK OVERLAY
+// ==========================================
+@Composable
+fun HeartbeatFeedbackOverlay(
+    textMsg: String,
+    onDismiss: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        delay(1800)
+        onDismiss()
+    }
+
+    val infiniteHeartbeat = rememberInfiniteTransition(label = "pulse_heartbeat")
+    val pulseSize by infiniteHeartbeat.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_hb_size"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.65f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF281140)),
+            border = BorderStroke(1.5.dp, Color(0xFF2979FF)),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = "Heartbeat pulse",
+                    tint = Color(0xFFCF6679),
+                    modifier = Modifier
+                        .size(54.dp)
+                        .scale(pulseSize)
+                )
+
+                Text(
+                    text = textMsg,
+                    color = Color.White,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "A subtle rhythmic haptic feedback was simulated on your screen",
+                    color = Color(0xFFD6B5F5),
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
